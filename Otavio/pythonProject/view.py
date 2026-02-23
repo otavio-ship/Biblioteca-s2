@@ -1,7 +1,12 @@
 from flask import jsonify, request
 from main import app, con
-from werkzeug.security import generate_password_hash, check_password_hash
+from flask_bcrypt import generate_password_hash
+from flask import send_file
+from fpdf import FPDF
+import os
 
+if not os.path.exists(app.config['UPLOAD_FOLDER']):
+    os.makedirs(app.config['UPLOAD_FOLDER'])
 
 @app.route('/livros', methods=['GET'])
 def listar_livros():
@@ -76,13 +81,11 @@ def editar_livros():
 
 @app.route('/livros/criar', methods=['POST'])
 def criar_livro():
-    cur = None
     try:
-        dados = request.get_json()
-
-        titulo = dados.get('titulo')
-        autor = dados.get('autor')
-        ano_publicacao = dados.get('ano_publicacao')
+        titulo = request.form.get('titulo')
+        autor = request.form.get('autor')
+        ano_publicacao = request.form.get('ano_publicacao')
+        imagem = request.files.get('imagem')
 
         if not titulo or not autor or not ano_publicacao:
             return jsonify(
@@ -93,9 +96,19 @@ def criar_livro():
         cur.execute("""
             INSERT INTO livros (titulo, autor, ano_publicacao)
             VALUES (?, ?, ?)
-        """, (titulo, autor, ano_publicacao))
+        RETURNING id_livro """, (titulo, autor, ano_publicacao))
 
+        codigo_livro = cur.fetchone()[0]
         con.commit()
+
+        caminho_imagem = None
+
+        if imagem:
+            nome_imagem = f"{codigo_livro}.jpeg"
+            caminho_imagem_destino = os.path.join(app.config['UPLOAD_FOLDER'], "livros")
+            os.makedirs(caminho_imagem_destino, exist_ok=True)
+            caminho_imagem = os.path.join(caminho_imagem_destino, nome_imagem)
+            imagem.save(caminho_imagem)
 
         return jsonify(
             mensagem='Livro cadastrado com sucesso'
@@ -110,6 +123,7 @@ def criar_livro():
     finally:
         if cur:
             cur.close()
+
 
 @app.route('/excluir_livros/<int:id>', methods=['DELETE'])
 def excluir_livros(id):
@@ -131,6 +145,41 @@ def excluir_livros(id):
             "mensagem": "Livro excluído com sucesso",
             'id_livro': id}
         )
+
+@app.route('/livros/relatorio', methods=['GET'])
+def gerar_relatorio():
+
+    # Consulta ao banco (usando conexão já existente: con)
+    cursor = con.cursor()
+    cursor.execute("SELECT id_livro, titulo, autor, ano_publicacao FROM livros")
+    livros = cursor.fetchall()
+    cursor.close()
+
+    # Criando o PDF
+    pdf = FPDF()
+    pdf.add_page()
+
+    # Título
+    pdf.set_font("Arial", size=16)
+    pdf.cell(200, 10, "Relatorio de Livros", ln=True, align="C")
+    pdf.ln(10)
+
+    # Fonte normal
+    pdf.set_font("Arial", size=12)
+
+    # Inserindo os livros
+    for livro in livros:
+        pdf.cell(
+            200,
+            10,
+            f"ID: {livro[0]} - {livro[1]} - {livro[2]} - {livro[3]}",
+            ln=True
+        )
+
+    # Salvando o PDF
+    pdf.output("relatorio_livros.pdf")
+
+    return send_file("relatorio_livros.pdf", as_attachment=True)
 
 
 @app.route('/usuarios', methods=['GET'])
@@ -228,7 +277,7 @@ def login():
         senha_hash = resultado[0]
 
         # Aqui você usa o check_password_hash
-        if not check_password_hash(senha_hash, senha):
+        if not (senha_hash, senha):
             return jsonify({'mensagem': 'Usuário ou senha inválidos'}), 401
 
         return jsonify({'mensagem': 'Login realizado com sucesso'}), 200
@@ -296,3 +345,45 @@ def excluir_usuarios(id):
             "mensagem": "Usuario excluído com sucesso",
             'id_livro': id}
         )
+
+@app.route('/usuarios/relatorio', methods=['GET'])
+def gerar_relatorios():
+
+    # Consulta ao banco (usando conexão já existente: con)
+    cursor = con.cursor()
+    cursor.execute("SELECT id_usuario, usuario, senha FROM usuarios")
+    usuarios = cursor.fetchall()
+    cursor.close()
+
+    # Criando o PDF
+    pdf = FPDF()
+    pdf.add_page()
+
+    # Título
+    pdf.set_font("Arial", size=16)
+    pdf.cell(200, 10, "Relatorio de usuarios", ln=True, align="C")
+    pdf.ln(10)
+
+    # Fonte normal
+    pdf.set_font("Arial", size=12)
+
+    # Inserindo os livros
+    for usuario in usuarios:
+        pdf.cell(
+            200,
+            10,
+            f"ID: {usuario[0]} - {usuario[1]} - {usuario[2]}",
+            ln=True
+        )
+
+    # Salvando o PDF
+    pdf.output("relatorio_usuarios.pdf")
+
+    return send_file("relatorio_usuarios.pdf", as_attachment=True)
+
+
+
+
+
+
+
