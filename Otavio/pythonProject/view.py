@@ -1,12 +1,60 @@
-from flask import jsonify, request
+from email.mime.multipart import MIMEMultipart
+from flask import jsonify, request, Response
 from main import app, con
 from flask_bcrypt import generate_password_hash
 from flask import send_file
 from fpdf import FPDF
 import os
+import pygal
+
+import threading #view
+
+import smtplib
+from email.mime.text import MIMEText
 
 if not os.path.exists(app.config['UPLOAD_FOLDER']):
     os.makedirs(app.config['UPLOAD_FOLDER'])
+
+def enviando_email(destinatario, assunto, mensagem):
+    user = 'otaviocurso@gmail.com'
+    senha = 'sua_senha_aqui'
+
+    msg = MIMEText(mensagem)
+    msg['From'] = user
+    msg['To'] = destinatario
+    msg['Subject'] = assunto
+
+    server = smtplib.SMTP('smtp.gmail.com', 587)
+    server.starttls()
+    server.login(user, senha)
+    server.send_mensage(msg)
+    server.quit()
+
+
+
+@app.route('/enviar_email', methods=['POST'])
+def enviar_email():
+    dados = request.json()
+    assunto = request.get['subject']
+    mensagem = dados.get('mensagem')
+    destinatario = dados.get('to')
+
+    thread = threading.Thread(target=enviando_email,
+                              args=(mensagem, assunto, destinatario))
+
+
+    thread.start()
+         
+         return jsonify({'mensagem': "email enviado com sucesso"})
+
+
+
+
+
+
+
+
+
 
 @app.route('/livros', methods=['GET'])
 def listar_livros():
@@ -384,6 +432,23 @@ def gerar_relatorios():
 
 
 
+@app.route('/grafico')
+def grafico():
+    cur = con.cursor()
+    cur.execute("""SELECT ano_publicacao, count(*)
+                        from livros  
+                        group by ano_publicacao
+                        order by ano_publicacao
+                """)
+    resultado = cur.fetchall()
+    cur.close()
+
+    grafico = pygal.bar()
+    grafico.title = 'Quantidade de livros por ano'
+
+    for g in resultado:
+        grafico.add(str(g[0]), g[1])
+    return Response(grafico.render(), mimetype='image/svg+xml')
 
 
 
